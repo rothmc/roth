@@ -1,57 +1,58 @@
-working_dir: &working_dir ~/app
-
-.build_template: &build_definition
-  steps:
-    - checkout
-    - run: curl -L https://codeclimate.com/downloads/test-reporter/test-reporter-latest-linux-amd64 > ./cc-test-reporter
-    - run: chmod +x ./cc-test-reporter
-    - run: ./cc-test-reporter before-build
-    - run: gem install bundler:2.1.4
-    - run: bundle install --jobs=4 --retry=4 --path vendor/bundle
-    - run: bundle exec rake rubocop
-    - run:
-        name: Run tests
-        command: |
-          bundle exec rspec -r rspec_junit_formatter --format RspecJunitFormatter -o $CIRCLE_TEST_REPORTS/rspec/junit.xml
-          ./cc-test-reporter after-build --exit-code $?
-  working_directory: *working_dir
-
-version: 2.0
-
+# PHP CircleCI 2.0 configuration file
+#
+# Check https://circleci.com/docs/2.0/language-php/ for more details
+#
+version: 2
 jobs:
   build:
     docker:
-      - image: ruby
+      # Specify the version you desire here
+      - image: circleci/php:7.1-node-browsers
+
+      # Specify service dependencies here if necessary
+      # CircleCI maintains a library of pre-built images
+      # documented at https://circleci.com/docs/2.0/circleci-images/
+      # Using the RAM variation mitigates I/O contention
+      # for database intensive operations.
+      # - image: circleci/mysql:5.7-ram
+      #
+      # - image: redis:2.8.19
+
     steps:
       - checkout
-  build_ruby2_7:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.7
-  build_ruby2_6:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.6
-  build_ruby2_5:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.5
-  build_ruby2_4:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.4
-  build_ruby2_3:
-    <<: *build_definition
-    docker:
-      - image: ruby:2.3
 
-workflows:
-  version: 2
-  build_ruby_versions:
-    jobs:
-      - build
-      - build_ruby2_7
-      - build_ruby2_6
-      - build_ruby2_5
-      - build_ruby2_4
-      - build_ruby2_3
+      - run: sudo apt update # PHP CircleCI 2.0 Configuration File# PHP CircleCI 2.0 Configuration File sudo apt install zlib1g-dev libsqlite3-dev
+      - run: sudo docker-php-ext-install zip
+
+      # Download and cache dependencies
+      - restore_cache:
+          keys:
+            # "composer.lock" can be used if it is committed to the repo
+            - v1-dependencies-{{ checksum "composer.json" }}
+            # fallback to using the latest cache if no exact match is found
+            - v1-dependencies-
+
+      - run: composer install -n --prefer-dist
+
+      - save_cache:
+          key: v1-dependencies-{{ checksum "composer.json" }}
+          paths:
+            - ./vendor
+      - restore_cache:
+          keys:
+            - node-v1-{{ checksum "package.json" }}
+            - node-v1-
+      - run: yarn install
+      - save_cache:
+          key: node-v1-{{ checksum "package.json" }}
+          paths:
+            - node_modules
+
+      # prepare the database
+      - run: touch storage/testing.sqlite
+      - run: php artisan migrate --env=testing --database=sqlite_testing --force
+
+      # run tests with phpunit or codecept
+      #- run: ./vendor/bin/phpunit
+      - run: ./vendor/bin/codecept build
+      - run: ./vendor/bin/codecept run
